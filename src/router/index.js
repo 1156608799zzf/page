@@ -7,7 +7,12 @@ export default new Router({
     routes: [
         {
             path: "/",
-            redirect: "/mobile"
+            redirect: "/index"
+        },
+        {
+            path: '/index',
+            component: resolve => require(['../view/Index'], resolve),
+            name: 'index'
         },
         {
             path: '/pc',
@@ -18,6 +23,11 @@ export default new Router({
             path: '/mobile',
             component: resolve => require(['../view/Mobile'], resolve),
             name: 'mobile'
+        },
+        {
+            path: "/mobile/chooseUser",
+            component: resolve => require(['../view/Mobile/ChooseUser'], resolve),
+            name: 'ChooseUser',
         }
     ]
 })
