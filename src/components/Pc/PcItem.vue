@@ -115,9 +115,11 @@
                 <!--日期-->
                 <template v-if="itemType === 'date'">
                     <DatePicker
+                        :value="itemValue"
                         :type="item.compType"
                         :placeholder="itemOptions.tips"
                         :format="itemOptions.extend.date.format ? itemOptions.extend.date.format : null"
+                        @on-change="changeCompValue"
                     ></DatePicker>
                 </template>
                 <!--富文本编辑器-->
@@ -546,7 +548,7 @@
             },
             //关联字段
             relationField(val, list){
-                let values = list ? list : this.itemOptions.value.values;
+                let values = list && list instanceof Array ? list : this.itemOptions.value.values;
                 let label;
                 if(values && values.length > 0) {
                     if(this.$refs[this.itemOptions.key] && this.$refs[this.itemOptions.key].displayRender) {
@@ -584,7 +586,7 @@
             //初始化值
             initCompValue(){
                 let {initValue, type} = this.itemOptions;
-                if(initValue && initValue.type !== '') {
+                if(!this.itemValue && initValue && initValue.type !== '') {
                     let valueType = this.GLOBAL.getModelDb(type).primary;
                     let {values, type: initValueType, refValues: expression} = initValue;
                     let result;

@@ -241,6 +241,8 @@
                             formCenterData.push(subObj);
                         } else if(type === 'a-tab' || type === 'l-row-2' || type === 'l-row-3'){
                             formCenterData.push(formatChild(item, formCenterData, true));
+                        } else if(type === 'a-interval'){
+                            formCenterData.push(formatChild(item, formCenterData, true));
                         } else {
                             formatChild(item, formCenterData);
                         }
@@ -337,6 +339,26 @@
             },
             //回显数据
             showData(){
+                //回显组件方法
+                function flagFn(ajaxFormData, item){
+                    //子表
+                    if(item.key.indexOf('a-sub-list') > -1) {
+                        let tableId = _this.getTableId(item);
+                        let exampleDataList = JSON.parse(JSON.stringify(item.data));
+                        ajaxFormData.forEach(ajaxItem => {
+                            if(ajaxItem.tableId === tableId) {
+                                item.list = _this.getSublist(ajaxItem, exampleDataList);
+                            }
+                        });
+                    } else {
+                        //普通
+                        for(let i in values) {
+                            if(i === item.key) {
+                                item = _this.formatShowDataItem(item, values[i]);
+                            }
+                        }
+                    }
+                }
                 let ajaxFormData = this.ajaxFormData;
                 let formCenterData = this.formCenterData;
                 let values = {};
@@ -347,23 +369,10 @@
                         }
                     }
                 });
-                formCenterData.forEach((item) => {
-                    if(item.key.indexOf('a-sub-list') > -1) {
-                        let tableId = this.getTableId(item);
-                        let exampleDataList = JSON.parse(JSON.stringify(item.data));
-                        ajaxFormData.forEach(ajaxItem => {
-                            if(ajaxItem.tableId === tableId) {
-                                item.list = this.getSublist(ajaxItem, exampleDataList);
-                            }
-                        })
-                    } else {
-                        for(let i in values) {
-                            if(i === item.key) {
-                                item = this.formatShowDataItem(item, values[i]);
-                            }
-                        }
-                    }
-                });
+                //遍历数据中心
+                this.mapDataCenter(item => {
+                    flagFn(ajaxFormData, item);
+                }, false);
                 this.formCenterData = formCenterData;
             },
             //获取子表的表格ID
@@ -386,7 +395,7 @@
                                     pk: "yes"
                                 })
                             }
-                            eItem = this.formatShowDataItem(eItem, values[index][eItem.key.split("__")[1]]);
+                            eItem = this.formatShowDataItem(JSON.parse(JSON.stringify(eItem)), values[index][eItem.key.split("__")[1]]);
                             eItem['pk'] = 'no';
                             row.push(eItem);
                         });
@@ -455,21 +464,23 @@
                         }
                     })
                 } else if(itemType === 'file-upload'){
-                    let mapCodeStr = values.split(";").join(",");
-                    this.$axios.getFile({
-                        data: {
-                            params: {
-                                mapCode: mapCodeStr
+                    let mapCodeStr = values && values.split(";").join(",");
+                    if(mapCodeStr) {
+                        this.$axios.getFile({
+                            data: {
+                                params: {
+                                    mapCode: mapCodeStr
+                                }
                             }
-                        }
-                    }).then(res => {
-                        item.alreadyUploadList = res.data;
-                        val = values;
-                        item[item.key] = val;
-                    });
+                        }).then(res => {
+                            item.alreadyUploadList = res.data;
+                            val = values;
+                            item[item.key] = val;
+                        });
+                    }
                 } else {
                     //primaryVal
-                    if(values.split(";").length > 1) {
+                    if(values && values.split(";").length > 1) {
                         val = values.split(";");
                     } else {
                         val = values;
@@ -528,7 +539,7 @@
                 }
             },
             //遍历数据中心
-            mapDataCenter(callback){
+            mapDataCenter(callback, mapSubList = true){
                 let formCenterData = this.formCenterData;
                 let fn = (formCenterData, callback) => {
                     formCenterData.forEach((item) => {
@@ -536,7 +547,7 @@
                             fn(item, callback);
                         } else {
                             if(item.key) {
-                                if(item.list) {
+                                if(mapSubList && item.list) {
                                     fn(item.list, callback);
                                 } else {
                                     if(callback) {
