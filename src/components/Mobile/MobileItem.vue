@@ -1,5 +1,5 @@
 <template>
-    <div class="mobileItem"  v-show="!hide">
+    <div class="mobileItem" v-show="!hide">
         <!--栅格布局-->
         <template v-if="itemType === 'l-row-2' || itemType === 'l-row-3'">
             <flexbox v-for="(colItem, colIndex) in itemOptions.child" :key="colIndex">
@@ -63,7 +63,6 @@
                         :placeholder="itemOptions.tips"
                         :max="itemOptions.maxLength"
                         :disabled="readonly"
-                        :is-type="validateComp"
                         @on-change="changeCompValue"
                     ></x-input>
                 </template>
@@ -76,7 +75,6 @@
                         :placeholder="itemOptions.tips"
                         :max="itemOptions.maxLength"
                         :disabled="readonly"
-                        :is-type="validateComp"
                         @on-change="changeCompValue"
                     ></x-textarea>
                 </template>
@@ -124,9 +122,7 @@
                 <!--多选下拉框-->
                 <template v-if="itemType === 'checkbox-dropdown'">
                     <div>
-                        <group label-width="5em">
-                            <x-switch v-model="item.showPopup" :title="itemOptions.label"></x-switch>
-                        </group>
+                        <x-switch v-model="item.showPopup" :title="itemOptions.label"></x-switch>
                         <div v-transfer-dom>
                             <popup v-model="item.showPopup">
                                 <group gutter="0">
@@ -229,7 +225,9 @@
                     </cell>
                 </template>
             </group>
-
+            <div class="fan_errMsg" v-if="errObj.errMsg">
+                {{ errObj.errMsg }}
+            </div>
         </template>
     </div>
 </template>
@@ -251,25 +249,22 @@
             formModel: {
                 type: [Object]
             },
-            formValue: {
-                type: [Object]
-            },
             showLabel: {
-                type: [Boolean],
+                type: [Boolean, String],
                 default(){
                     return true;
                 }
             },
-            itemsProp: {
+            itemProps: {
                 type: [String],
                 default(){
                     return '';
                 }
             },
-            itemModel: {
+            subListModel: {
                 type: [Object],
                 default(){
-                    return {};
+                    return {}
                 }
             }
         },
@@ -292,8 +287,7 @@
                 hide: "",
                 //规则
                 rules: [],
-                //必填
-                required: ""
+                errObj: {}
             }
         },
         computed: {
@@ -307,8 +301,8 @@
             },
             //返回组件的绑定值
             itemValue(){
-                let {itemModel, formModel, itemOptions} = this;
-                return Object.keys(itemModel).length > 0 ? formModel[itemModel.pid][itemModel.index][itemOptions.key] : formModel[itemOptions.key]
+                let {formModel, itemOptions} = this;
+                return formModel[itemOptions.key]
             },
             //表单验证
             validateComp(){
@@ -379,7 +373,6 @@
                             opt['value'] = opt.n;
                         });
                         this.itemOptions.value.values = values;
-                        console.warn(values)
                     } else if(type === 'cascade'){
                         let values = this.itemOptions.value.values;
                         values.forEach(opt => {
@@ -422,47 +415,78 @@
             this.$bus.$on('choosePerson', res => {
                 this.changeCompValue(res);
             });
+            //订阅验证表单
+            this.$bus.$off('mobileValidate');
+            this.$bus.$on('mobileValidate', () => {
+                this.validateForm(this.itemValue);
+            })
         },
         methods: {
+            //验证表单
+            validateForm(val){
+                let flag = true;
+                let rules = this.rules;
+                if(rules.length > 0) {
+                    let errObj = {};
+                    for(let i = 0; i < rules.length; i++) {
+                        let rule = rules[i];
+                        if(!rule.validateFn(val)) {
+                            errObj.errMsg = rule.errMsg;
+                            flag = false;
+                            break;
+                        }
+                    }
+                    this.errObj = errObj;
+                }
+                return flag;
+            },
             //改变组件值
             changeCompValue(val){
-                let itemType = this.itemType
-                if(itemType === 'file-upload') {
-                    let file = val.target.files[0];
-                    let data = new FormData();
-                    data.append(this.$axios.uploadName, file, file.name);
-                    this.$axios.uploadFile({
-                        url: "file/gridfs/upload",
-                        data: {
-                            params: {
-                                file: data
-                            },
-                            loading: true
-                        },
-                        headers: {
-                            'Content-Type': 'multipart/form-data;'
-                        }
-                    }).then(res => {
-
-                    })
-                } else {
-                    if(itemType === 'rich-text') {
-                        val = val.html;
-                    }
-                    this.changeFlagFn(val)
+                let item = this.item;
+                if(!this.validateForm(val)) {
+                    return;
+                }
+                this.changeFlagFn(val);
+                if(item.hasOwnProperty('assistFieldName')) {
+                    this.relationField(val);
                 }
             },
-            //公共改变值的方法
-            changeFlagFn(val, objName = 'formModel'){
-                let {itemModel, itemOptions} = this;
-                let formModel = this[objName];
-                let type = itemOptions.type;
-                if(Object.keys(itemModel).length > 0) {
-                    formModel[itemModel.pid][itemModel.index][itemOptions.key] = val;
-                } else {
-                    formModel[itemOptions.key] = val;
+            //关联字段
+            relationField(val, list){
+                let values = list && list instanceof Array ? list : this.itemOptions.value.values;
+                let label;
+                if(values && values.length > 0) {
+                    if(this.$refs[this.itemOptions.key] && this.$refs[this.itemOptions.key].displayRender) {
+                        label = this.$refs[this.itemOptions.key].displayRender.split(' / ');
+                    } else {
+                        if(val instanceof Array) {
+                            label = [];
+                            for(let n = 0; n < val.length; n++) {
+                                for(let i = 0; i < values.length; i++) {
+                                    if(val[n] === values[i].v) {
+                                        label.push(values[i].n);
+                                        break;
+                                    }
+                                }
+                            }
+                        } else {
+                            values.forEach(item => {
+                                if(item.v === val) {
+                                    label = item.n;
+                                }
+                            })
+                        }
+                    }
                 }
-                this[objName] = formModel;
+                this.item[this.item.assistFieldName] = label;
+            },
+            changeFlagFn(val){
+                let {itemOptions} = this;
+                let formModel = this.formModel;
+                formModel[itemOptions.key] = val;
+                this.formModel = formModel;
+                //改变数据中心的数据
+                this.item[this.item.key] = val;
             },
             //初始化值
             initCompValue(){
@@ -539,28 +563,6 @@
                 }
                 this.hide = hide;
             },
-            //必填
-            formatRequired(){
-                let {itemOptions, parser} = this;
-                let {required} = itemOptions;
-                let requiredFlag = false;
-                //必填
-                if(required) {
-                    let {type, expression} = required;
-                    if(type !== 'off') {
-                        if(type === 'on') {
-                            requiredFlag = true;
-                        } else {
-                            if(form.utils.runExpression(expression, {
-                                $form: this.formModel
-                            }, parser)) {
-                                requiredFlag = true;
-                            }
-                        }
-                        this.required = requiredFlag;
-                    }
-                }
-            },
             //规则
             formatRules(){
                 let rules = [];
@@ -572,12 +574,14 @@
                     if(type !== 'off') {
                         if(type === 'on') {
                             rules.push({
+                                errMsg: "此项为必填项",
                                 validateFn: val => {
-                                    return this.GLOBAL.is_null(val);
+                                    return this.GLOBAL.no_null(val);
                                 }
                             })
                         } else {
                             rules.push({
+                                errMsg: "此项为必填项",
                                 validateFn: val => {
                                     return form.utils.runExpression(expression, {
                                         $form: this.formModel
@@ -693,5 +697,9 @@
             flex: 0 0 auto;
             width: 5em;
         }
+    }
+    .fan_errMsg {
+        padding-left: 15px;
+        color: red;
     }
 </style>

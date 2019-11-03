@@ -33,7 +33,7 @@
             <Divider />
         </template>
         <template v-else>
-            <FormItem :label="showLabel ? itemOptions.label : null" :prop="itemsProp ? itemsProp :itemOptions.key">
+            <FormItem :label="showLabel ? itemOptions.label : null" :prop="itemProps ? itemProps : itemOptions.key">
                 <!--子表-->
                 <template v-if="itemType === 'a-sub-list'">
                     <Table :columns="sublistColumns" :data="sublistData" class="subList">
@@ -66,7 +66,7 @@
                 </template>
                 <!--单选按钮-->
                 <template v-if="itemType === 'radio'">
-                    <RadioGroup :value="itemValue" @on-change="changeCompValue">
+                    <RadioGroup :value="itemValue" @on-change="changeCompValue" :ref="itemOptions.key">
                         <Radio
                             v-for="(opt, optIndex) in itemOptions.value.values"
                             :key="optIndex"
@@ -77,7 +77,7 @@
                 </template>
                 <!--复选框-->
                 <template v-if="itemType === 'checkbox'">
-                    <CheckboxGroup :value="itemValue" @on-change="changeCompValue" :ref="itemOptions.key">
+                    <CheckboxGroup :value="itemValue" :ref="itemOptions.key" @on-change="changeCompValue">
                         <Checkbox
                             v-for="(opt, optIndex) in itemOptions.value.values"
                             :key="optIndex"
@@ -133,11 +133,21 @@
                         :auto-upload="false"
                         :data="upload.params"
                         :before-upload="handlerBeforeUpload"
-                        :on-success="uploadSuccess"
-                        :on-remove="removeFile"
                     >
                         <Button icon="ios-cloud-upload-outline">上传</Button>
                     </Upload>
+                    <template v-if="item.uploadList && item.uploadList.length > 0">
+                        <div>待上传列表</div>
+                        <div v-for="(fileItem, index) in item.uploadList" :key="index">
+                            {{ fileItem.get('file').name }}<Button type="text" @click="removeFile(index)" >删除</Button>
+                        </div>
+                    </template>
+                    <template v-if="item.alreadyUploadList && item.alreadyUploadList.length > 0">
+                        <div>已上传列表</div>
+                        <div v-for="(fileItem, index) in item.alreadyUploadList" :key="index">
+                            {{ fileItem.attachName }}<Button type="text" @click="removeFile(index, true)" >删除</Button>
+                        </div>
+                    </template>
                 </template>
                 <!--人员控件-->
                 <template v-if="itemType === 'choose-user'">
@@ -206,6 +216,7 @@
     import PcItem from './PcItem'
     import Editor from 'wangeditor'
     import IviewModal from '../IviewModal'
+    let _this;
     export default {
         name: "PcItem",
         props: {
@@ -215,25 +226,22 @@
             formModel: {
                 type: [Object]
             },
-            formValue: {
-                type: [Object]
-            },
             showLabel: {
-                type: [Boolean],
+                type: [Boolean, String],
                 default(){
                     return true;
                 }
             },
-            itemsProp: {
+            itemProps: {
                 type: [String],
                 default(){
                     return '';
                 }
             },
-            itemModel: {
+            subListModel: {
                 type: [Object],
                 default(){
-                    return {};
+                    return {}
                 }
             }
         },
@@ -252,7 +260,6 @@
                         align: "center"
                     }
                 ],
-                //子表数据
                 sublistData: [],
                 //表达式js变量
                 parser: "",
@@ -260,8 +267,6 @@
                 readonly: false,
                 //隐藏
                 hide: false,
-                //文件列表
-                uploadFileList: [],
                 //iview弹出框
                 modal: {
                     show: false,
@@ -323,8 +328,7 @@
                     },
                     fileList: []
                 },
-
-                editor: ""
+                editor: "",
             }
         },
         computed: {
@@ -338,8 +342,8 @@
             },
             //返回组件的绑定值
             itemValue(){
-                let {itemModel, formModel, itemOptions} = this;
-                return Object.keys(itemModel).length > 0 ? formModel[itemModel.pid][itemModel.index][itemOptions.key] : formModel[itemOptions.key]
+                let {formModel, itemOptions, subListModel} = this;
+                return Object.keys(subListModel).length > 0 ? formModel[itemOptions.key + subListModel.rowIndex] : formModel[itemOptions.key]
             },
             //人员列表
             'leftTableData': function () {
@@ -383,19 +387,25 @@
             },
             //监听选中人员
             'person.rightTableData'(list){
-                let personNameStr = "";
+                let personArr = [];
+                let idArr = [];
                 list.forEach(item => {
-                    personNameStr = item.fullName + ',' + personNameStr;
+                    item['n'] = item.fullName;
+                    item['v'] = item.userId;
+                    idArr.push(item.userId);
+                    personArr.push(item.fullName);
                 });
-                this.person.personNameStr = personNameStr;
-                this.formModel[this.item.options.key] = list;
-            },
+                this.person.personNameStr = personArr.join(",");
+                this.changeCompValue(idArr, list);
+            }
         },
         mounted(){
+            _this = this;
             //渲染子表
             let item = this.item;
             if(item.options && item.options.type === 'a-sub-list') {
-                let sublist = item.options.extend.sublist;
+                let sublist = item.data;
+                let list = item.list;
                 let {sublistColumns} = this;
                 sublist.forEach(subItem => {
                     let {label, key} = subItem.options;
@@ -403,25 +413,43 @@
                         title: label,
                         key,
                         render: (h, params) => {
-                            let {index: colIndex} = params;
-                            return h(PcItem, {
-                                props: {
-                                    item: subItem,
-                                    formModel: this.formModel,
-                                    showLabel: false,
-                                    itemsProp: item.options.id + colIndex + key,
-                                    itemModel: {
-                                        pid: item.options.id,
-                                        index: colIndex
+                            let list = this.item.list;
+                            let {index: rowIndex} = params;
+                            let rowList = list[rowIndex];
+                            let colIndex;
+                            if(list.length > rowIndex) {
+                                rowList.forEach((rowItem, i) => {
+                                    if(rowItem.key === subItem.key) {
+                                        colIndex = i;
                                     }
-                                }
-                            })
+                                });
+                                return h(PcItem, {
+                                    props: {
+                                        item: list[rowIndex][colIndex],
+                                        formModel: this.formModel,
+                                        showLabel: false,
+                                        subListModel: {
+                                            rowIndex
+                                        }
+                                    }
+                                })
+                            }
                         }
                     })
                 });
                 this.sublistColumns = sublistColumns;
                 this.$nextTick(() => {
-                    this.sublistData = this.formModel[this.itemOptions.id];
+                    let list = JSON.parse(JSON.stringify(item.list));
+                    let exampleArr = JSON.parse(JSON.stringify(item.data));
+                    let subListObj = {};
+                    if(this.sublistData.length < list.length) {
+                        list.forEach(item => {
+                            exampleArr.forEach((item) => {
+                                subListObj[item.key] = item[item.key];
+                            });
+                            this.sublistData.push(subListObj);
+                        })
+                    }
                 })
             }
             //渲染富文本编辑器及级联数据
@@ -431,18 +459,21 @@
                     let type = item.options.type;
                     //监听初始化富文本编辑器
                     if (type === 'rich-text') {
-                        let editor = new Editor(`.${item.options.id}`);
-                        editor.customConfig.onchange = html => {
-                            let str = this.GLOBAL.delHtmlTag(html);
-                            let maxLength = this.itemOptions.maxLength;
-                            if(maxLength && str.length > maxLength) {
-                                editor.txt.html(this.formModel[this.itemOptions.key])
-                                return false;
-                            }
-                            this.formModel[this.itemOptions.key] = html;
-                        };
-                        editor.create();
-                        this.editor = editor;
+                        if(!this.editor) {
+                            let editor = new Editor(`.${item.options.id}`);
+                            editor.customConfig.onchange = html => {
+                                let str = this.GLOBAL.delHtmlTag(html);
+                                let maxLength = this.itemOptions.maxLength;
+                                if(maxLength && str.length > maxLength) {
+                                    editor.txt.html(this.formModel[this.itemOptions.key]);
+                                    return false;
+                                }
+                                this.changeFlagFn(html);
+                                // this.formModel[this.itemOptions.key] = html;
+                            };
+                            editor.create();
+                            this.editor = editor;
+                        }
                     } else if(type === 'cascade') {
                         let values = this.itemOptions.value.values;
                         values = this.GLOBAL.sortFileData({
@@ -490,79 +521,65 @@
         methods: {
             //添加子行
             addSubRow(){
-                let {itemOptions, formModel, sublistData} = this;
-                let id = itemOptions.id;
-                if(sublistData.length > 0) {
-                    let obj = this.clearVal(JSON.parse(JSON.stringify(formModel[id][0])));
-                    formModel[id].push(obj);
-                    sublistData = JSON.parse(JSON.stringify(formModel[id]));
-                    this.formModel = formModel;
-                } else {
-                    sublistData = formModel[id];
-                }
-                this.sublistData = sublistData;
+                let sublistData = JSON.parse(JSON.stringify(this.item.data));
+                let result = [];
+                let subListObj = {};
+                sublistData.forEach((item) => {
+                    subListObj[item.key] = item[item.key];
+                    result.push(JSON.parse(JSON.stringify(item)));
+                });
+                this.sublistData.push(subListObj);
+                this.item.list.push(result);
             },
             //删除子行
             delSubRow(index){
-                let {item, formModel, sublistData} = this;
-                let id = item.options.id;
-                if(sublistData.length > 1) {
-                    formModel[id].splice(index, 1);
-                    sublistData.splice(index, 1);
-                    this.formModel = formModel;
-                } else {
-                    sublistData = [];
-                }
-                this.sublistData = sublistData;
+                this.sublistData.splice(index, 1);
+                this.item.list.splice(index, 1);
             },
             //改变组件值
-            changeCompValue(val){
-                this.changeFlagFn(val)
-                this.relationField(val);
+            changeCompValue(val, list){
+                let item = this.item;
+                this.changeFlagFn(val);
+                if(item.hasOwnProperty('assistFieldName')) {
+                    this.relationField(val, list);
+                }
             },
             //关联字段
-            relationField(val){
-                let {dbInfos} = this.itemOptions;
-                if(dbInfos && dbInfos.length > 1) {
-                    let values = this.itemOptions.value.values;
-                    let assist;
-                    if(val instanceof Array) {
-                        assist = [];
-                        if(this.$refs[this.itemOptions.key].displayInputRender) {
-                            assist = this.$refs[this.itemOptions.key].displayInputRender.split(" / ");
-                        } else if(this.$refs[this.itemOptions.key].values){
-                            let list = this.$refs[this.itemOptions.key].values;
-                            list.forEach(opt => {
-                                assist.push(opt.label);
-                            })
-                        } else {
-                            val.forEach(item => {
-                                values.forEach(opt => {
-                                    if(item === opt.key) {
-                                        assist.push(opt.value);
-                                    }
-                                })
-                            });
-                        }
+            relationField(val, list){
+                let values = list ? list : this.itemOptions.value.values;
+                let label;
+                if(values && values.length > 0) {
+                    if(this.$refs[this.itemOptions.key] && this.$refs[this.itemOptions.key].displayRender) {
+                        label = this.$refs[this.itemOptions.key].displayRender.split(' / ');
                     } else {
-                        values.forEach(opt => {
-                            if(opt.key === val) {
-                                assist = opt.value;
+                        if(val instanceof Array) {
+                            label = [];
+                            for(let n = 0; n < val.length; n++) {
+                                for(let i = 0; i < values.length; i++) {
+                                    if(val[n] === values[i].v) {
+                                        label.push(values[i].n);
+                                        break;
+                                    }
+                                }
                             }
-                        })
+                        } else {
+                            values.forEach(item => {
+                                if(item.v === val) {
+                                    label = item.n;
+                                }
+                            })
+                        }
                     }
-                    this.changeFlagFn(assist, 'formValue');
                 }
+                this.item[this.item.assistFieldName] = label;
             },
-            changeFlagFn(val, objName = 'formModel'){
-                let {itemModel, itemOptions} = this;
-                let formModel = this[objName];
-                if(Object.keys(itemModel).length > 0) {
-                    formModel[itemModel.pid][itemModel.index][itemOptions.key] = val;
-                } else {
-                    formModel[itemOptions.key] = val;
-                }
-                this[objName] = formModel;
+            changeFlagFn(val){
+                let {itemOptions} = this;
+                let formModel = this.formModel;
+                formModel[itemOptions.key] = val;
+                this.formModel = formModel;
+                //改变数据中心的数据
+                this.item[this.item.key] = val;
             },
             //初始化值
             initCompValue(){
@@ -650,7 +667,7 @@
             },
             //文件上传前的操作
             handlerBeforeUpload(file){
-                let uploadList = this.formModel[this.itemOptions.key];
+                let uploadList = this.item.uploadList;
                 let maxLength = this.itemOptions.maxLength;
                 if(maxLength && uploadList.length >= maxLength) {
                     this.GLOBAL.toastInfo(`最多上传${maxLength}个附件`, 'warning');
@@ -660,28 +677,26 @@
                     url: "file/attach/generate/mapCode"
                 }).then(res => {
                     if(res.code === 0) {
-                        this.upload.params['mapCode'] = res.data;
-                        this.$nextTick(() => {
-                            this.$refs[this.itemOptions.key].post(file);
-                        });
+                        let list = this.item.uploadList;
+                        let formData = new FormData();
+                        formData.append('file', file);
+                        formData.append('mapCode', res.data);
+                        list.push(formData);
                     }
                 });
                 return false;
             },
-            //文件上传成功时
-            uploadSuccess(response, file, fileList){
-                let list = this.formModel[this.itemOptions.key];
-                list.push({
-                    mapCode: this.upload.params['mapCode'],
-                    file: file
-                });
-                this.formModel[this.itemOptions.key] = list;
-            },
             //移除文件
-            removeFile(file, fileList){
-                let list = this.formModel[this.itemOptions.key];
-                list = list.filter(v => v.file.uid != file.uid)
-                this.formModel[this.itemOptions.key] = list;
+            removeFile(index, is_upload){
+                if(is_upload) {
+                    let itemValue = this.itemValue;
+                    let listArr = itemValue.split(",");
+                    listArr.splice(index, 1);
+                    this.changeCompValue(listArr.join(","));
+                    this.item.alreadyUploadList.splice(index, 1);
+                } else {
+                    this.item.uploadList.splice(index, 1);
+                }
             },
             //选择人员设置
             choosePerson() {
@@ -703,7 +718,6 @@
                         this.$axios.getPersonList({
                             data: {
                                 params: {
-                                    orgId: res.data[0],
                                     pageSize: 10000
                                 }
                             }

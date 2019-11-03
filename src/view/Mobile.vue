@@ -5,8 +5,8 @@
             <div slot="right" @click="submitForm">完成</div>
         </XHeader>
         <group class="group">
-            <template v-for="item in formData">
-                <MobileItem :item="item" :formModel="formModel" :form-value="formValue"></MobileItem>
+            <template v-for="item in formCenterData">
+                <MobileItem :item="item" :formModel="formModel"></MobileItem>
             </template>
         </group>
     </div>
@@ -18,21 +18,43 @@
     import '../assets/js/form'
     export default {
         name: "Mobile",
-        props: ['formData', 'formModel', 'ajaxData', 'formValue'],
+        props: ['formData', 'formCenterData'],
         components: {
             MobileItem,
             XButton,Group,XHeader
         },
         data(){
             return {
-                parser: ""
+                parser: "",
+
+                formModel: {}
             }
         },
         watch: {
             formData(){
                 //生成监听
                 this.updateWatch();
-            }
+            },
+            formCenterData: {
+                deep: true,
+                handler: function(){
+                    let formCenterData = this.formCenterData;
+                    let formModel = {};
+                    formCenterData.forEach(item => {
+                        if(item.data) {
+                            let list = item.list;
+                            list.forEach((row, index) => {
+                                row.forEach(col => {
+                                    formModel[col.key + index] = col[col.key];
+                                })
+                            })
+                        } else {
+                            formModel[item.key] = item[item.key]
+                        }
+                    });
+                    this.formModel = formModel;
+                }
+            },
         },
         mounted(){
             //初始化表单运算表达式方法
@@ -42,7 +64,7 @@
             //监听
             updateWatch(){
                 let list = this.formData;
-                let parser = this.parser;
+                let parser = form.parser();
                 let watchArr = [],
                     watchColl = {};
                 list.forEach(item => {
@@ -74,12 +96,32 @@
                         let arr = watchColl[i];
                         arr.forEach(item => {
                             let expression = item.expression;
-                            this.formModel[item.el] = String(form.utils.runExpression(expression, {
+                            let val = String(form.utils.runExpression(expression, {
                                 $form: this.formModel
                             }, parser));
+                            this.formModel[item.el] = val;
+                            this.updateDataCenter(item.el, val);
                         })
                     })
                 }
+            },
+            //数据中心赋值
+            updateDataCenter(key, val){
+                let formCenterData = this.formCenterData;
+                formCenterData.forEach(item => {
+                    if(item.data) {
+                        let list = item.data;
+                        list.forEach(listItem => {
+                            if(listItem.key === key) {
+                                item[key] = val;
+                            }
+                        })
+                    } else {
+                        if(item.key === key) {
+                            item[key] = val;
+                        }
+                    }
+                })
             },
             //提交表单
             submitForm(){

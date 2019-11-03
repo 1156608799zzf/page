@@ -1,8 +1,8 @@
 <template>
     <div>
         <Form :label-width="120" :model="formModel" ref="pcForm" :rules="rules">
-            <template v-for="item in formData">
-                <PcItem :item="item" :formModel="formModel" :form-value="formValue"></PcItem>
+            <template v-for="item in formCenterData">
+                <PcItem :item="item" :formModel="formModel"></PcItem>
             </template>
             <FormItem style="text-align:center;" v-if="formData.length > 0">
                 <Button type="primary" @click="submitForm">提交</Button>
@@ -17,7 +17,7 @@
     import '../assets/js/form'
     export default {
         name: "PC",
-        props: ['formData', 'formModel', 'ajaxData', 'formValue'],
+        props: ['formData', 'formCenterData'],
         components: {
             PcItem,
             Form,
@@ -27,16 +27,39 @@
         data(){
             return {
                 //表单规则
-                rules: {}
+                rules: {},
+                formModel: {}
             }
         },
         watch: {
+            formCenterData: {
+                deep: true,
+                handler: function(){
+                    let formCenterData = this.formCenterData;
+                    let formModel = {};
+                    formCenterData.forEach(item => {
+                        if(item.data) {
+                            let list = item.list;
+                            list.forEach((row, index) => {
+                                row.forEach(col => {
+                                    formModel[col.key + index] = col[col.key];
+                                })
+                            })
+                        } else {
+                            formModel[item.key] = item[item.key]
+                        }
+                    });
+                    this.formModel = JSON.parse(JSON.stringify(formModel));
+                }
+            },
             formData(){
                 //生成校验规则
                 this.formatRules();
                 //生成监听
                 this.updateWatch();
             }
+        },
+        mounted(){
         },
         methods: {
             //计算校验规则
@@ -55,7 +78,7 @@
                                 fieldRulesArr.push({
                                     required: true,
                                     message: "此项为必填项",
-                                    trigger: "blur"
+                                    trigger: "change"
                                 })
                             } else {
                                 const exprFn = (rule, value, callback) => {
@@ -71,7 +94,7 @@
                                 };
                                 fieldRulesArr.push({
                                     validator: exprFn,
-                                    trigger: "blur"
+                                    trigger: "change"
                                 })
                             }
                         }
@@ -87,7 +110,7 @@
                                         fieldRulesArr.push({
                                             pattern: eval(expression),
                                             message: message,
-                                            trigger: "blur"
+                                            trigger: "change"
                                         })
                                     }
                                     break;
@@ -103,7 +126,7 @@
                                     };
                                     fieldRulesArr.push({
                                         validator: exprFn,
-                                        trigger: "blur"
+                                        trigger: "change"
                                     });
                                     break;
                                 case 'remote':
@@ -125,7 +148,7 @@
                                     };
                                     fieldRulesArr.push({
                                         validator: remoteFn,
-                                        trigger: "blur"
+                                        trigger: "change"
                                     });
                                     break;
                             }
@@ -174,12 +197,32 @@
                         let arr = watchColl[i];
                         arr.forEach(item => {
                             let expression = item.expression;
-                            this.formModel[item.el] = String(form.utils.runExpression(expression, {
+                            let val = String(form.utils.runExpression(expression, {
                                 $form: this.formModel
                             }, parser));
+                            this.formModel[item.el] = val;
+                            this.updateDataCenter(item.el, val);
                         })
                     })
                 }
+            },
+            //数据中心赋值
+            updateDataCenter(key, val){
+                let formCenterData = this.formCenterData;
+                formCenterData.forEach(item => {
+                    if(item.data) {
+                        let list = item.data;
+                        list.forEach(listItem => {
+                            if(listItem.key === key) {
+                                item[key] = val;
+                            }
+                        })
+                    } else {
+                        if(item.key === key) {
+                            item[key] = val;
+                        }
+                    }
+                })
             }
         }
     }
